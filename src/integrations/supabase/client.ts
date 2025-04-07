@@ -16,3 +16,8 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage
   }
 });
+
+// Add type helpers to make it easier to use the table names
+export type Tables = Database['public']['Tables']
+export type TablesInsert<T extends keyof Tables> = Database['public']['Tables'][T]['Insert']
+export type TablesRow<T extends keyof Tables> = Database['public']['Tables'][T]['Row']

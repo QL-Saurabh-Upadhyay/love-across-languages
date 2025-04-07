@@ -3,7 +3,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { User, Match, Chat, Message } from "@/types";
 import { useAuth } from "./AuthContext";
 import { useToast } from "@/hooks/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, Tables } from "@/integrations/supabase/client";
 
 interface UserContextType {
   users: User[];
@@ -291,7 +291,9 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         
       if (userError) throw userError;
       
-      return userData?.map(profile => ({
+      if (!userData) return [];
+      
+      return userData.map(profile => ({
         id: profile.id,
         name: profile.name,
         email: profile.email,
@@ -303,7 +305,7 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         location: profile.location || '',
         preferredLanguage: profile.preferred_language || 'en',
         createdAt: new Date(profile.created_at)
-      })) || [];
+      }));
     } catch (error) {
       console.error("Error discovering users:", error);
       return [];
@@ -368,11 +370,13 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         
       if (error) throw error;
       
+      if (!data) throw new Error("Failed to create match");
+      
       const newMatch: Match = {
         id: data.id,
         user1Id: data.user1_id,
         user2Id: data.user2_id,
-        timestamp: new Date(data.created_at)
+        timestamp: new Date(data.created_at || new Date())
       };
       
       // Update local state
@@ -405,6 +409,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         
       if (error) throw error;
       
+      if (!data) return [];
+      
       const loadedMessages: Message[] = data.map(msg => ({
         id: msg.id,
         senderId: msg.sender_id,
@@ -412,8 +418,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         originalText: msg.original_text,
         originalLanguage: msg.original_language,
         translatedText: msg.translated_text,
-        timestamp: new Date(msg.timestamp),
-        read: msg.read
+        timestamp: new Date(msg.timestamp || new Date()),
+        read: msg.read || false
       }));
       
       // Update local state
@@ -454,6 +460,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         
       if (error) throw error;
       
+      if (!data) throw new Error("Failed to send message");
+      
       // Convert to our format
       const newMessage: Message = {
         id: data.id,
@@ -462,8 +470,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         originalText: data.original_text,
         originalLanguage: data.original_language,
         translatedText: data.translated_text,
-        timestamp: new Date(data.timestamp),
-        read: data.read
+        timestamp: new Date(data.timestamp || new Date()),
+        read: data.read || false
       };
       
       // Update local state
@@ -483,6 +491,44 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       console.error("Error sending message:", error);
       throw error;
     }
+  };
+
+  const loadUserChats = async (userId: string) => {
+    const userMatches = matches.filter(
+      match => match.user1Id === userId || match.user2Id === userId
+    );
+    
+    const newChats: Chat[] = [];
+    
+    for (const match of userMatches) {
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      const otherUser = users.find(u => u.id === otherUserId);
+      
+      if (!otherUser) continue;
+      
+      const matchMessages = messages[match.id] || [];
+      const lastMsg = matchMessages.length > 0 
+        ? matchMessages.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())[0]
+        : undefined;
+      
+      const unreadCount = matchMessages.filter(
+        msg => msg.receiverId === userId && !msg.read
+      ).length;
+      
+      newChats.push({
+        matchId: match.id,
+        userId: otherUser.id,
+        userName: otherUser.name,
+        userImage: otherUser.images[0],
+        lastMessage: lastMsg?.originalText,
+        lastMessageTime: lastMsg?.timestamp,
+        unreadCount
+      });
+    }
+    
+    setChats(newChats);
+    
+    return newChats;
   };
 
   const getUserChats = async (userId: string) => {
