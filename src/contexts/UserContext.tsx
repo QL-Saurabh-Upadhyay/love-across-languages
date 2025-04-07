@@ -1,4 +1,3 @@
-
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { User, Match, Chat, Message } from "@/types";
 import { useAuth } from "./AuthContext";
@@ -28,7 +27,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Load users on mount
   useEffect(() => {
     if (user) {
       loadUsers();
@@ -36,7 +34,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [user]);
 
-  // Set up real-time listeners for messages
   useEffect(() => {
     if (!user) return;
 
@@ -62,7 +59,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [user]);
 
-  // Set up real-time listeners for matches
   useEffect(() => {
     if (!user) return;
 
@@ -89,7 +85,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   }, [user]);
 
   const handleNewMessage = async (newMsg: any) => {
-    // Convert Supabase message format to our app format
     const formattedMessage: Message = {
       id: newMsg.id,
       senderId: newMsg.sender_id,
@@ -101,7 +96,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       read: newMsg.read
     };
 
-    // Update local messages state
     setMessages(prev => {
       const matchMessages = [...(prev[newMsg.match_id] || []), formattedMessage];
       return {
@@ -110,12 +104,10 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       };
     });
     
-    // Update chats list
     await loadUserChats(user!.id);
   };
 
   const handleNewMatch = async (newMatch: any) => {
-    // Convert Supabase match format to our app format
     const formattedMatch: Match = {
       id: newMatch.id,
       user1Id: newMatch.user1_id,
@@ -123,13 +115,10 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       timestamp: new Date(newMatch.created_at)
     };
 
-    // Add to matches
     setMatches(prev => [...prev, formattedMatch]);
     
-    // Update chats
     await loadUserChats(user!.id);
     
-    // Show notification
     toast({
       title: "New match!",
       description: "You have a new match! Check your messages."
@@ -185,7 +174,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         }));
         setMatches(loadedMatches);
         
-        // Load messages for each match
         loadedMatches.forEach(match => loadMatchMessages(match.id));
       }
     } catch (error) {
@@ -267,7 +255,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     if (!user) return [];
     
     try {
-      // Get all user matches to exclude them
       const { data: matchData, error: matchError } = await supabase
         .from('matches')
         .select('*')
@@ -275,15 +262,12 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         
       if (matchError) throw matchError;
       
-      // Get matched user IDs to exclude
       const matchedUserIds = matchData?.map(match => 
         match.user1_id === user.id ? match.user2_id : match.user1_id
       ) || [];
       
-      // Add current user ID to exclude list
       const excludeIds = [user.id, ...matchedUserIds];
       
-      // Get users who are not matched
       const { data: userData, error: userError } = await supabase
         .from('profiles')
         .select('*')
@@ -313,11 +297,9 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const getUser = async (userId: string) => {
-    // First check cache
     const cachedUser = users.find(u => u.id === userId);
     if (cachedUser) return cachedUser;
     
-    // If not in cache, fetch from DB
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -342,7 +324,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           createdAt: new Date(data.created_at)
         };
         
-        // Add to cache
         setUsers(prev => {
           const exists = prev.some(u => u.id === user.id);
           return exists ? prev : [...prev, user];
@@ -379,7 +360,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         timestamp: new Date(data.created_at || new Date())
       };
       
-      // Update local state
       setMatches(prev => [...prev, newMatch]);
       
       toast({
@@ -422,7 +402,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         read: msg.read || false
       }));
       
-      // Update local state
       setMessages(prev => ({
         ...prev,
         [matchId]: loadedMessages
@@ -439,13 +418,11 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
     if (!user) throw new Error("User not authenticated");
     
     try {
-      // Get match to determine recipient
       const match = matches.find(m => m.id === matchId);
       if (!match) throw new Error("Match not found");
       
       const recipientId = match.user1Id === user.id ? match.user2Id : match.user1Id;
       
-      // Insert message
       const { data, error } = await supabase
         .from('messages')
         .insert({
@@ -462,7 +439,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       
       if (!data) throw new Error("Failed to send message");
       
-      // Convert to our format
       const newMessage: Message = {
         id: data.id,
         senderId: data.sender_id,
@@ -474,7 +450,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         read: data.read || false
       };
       
-      // Update local state
       setMessages(prev => {
         const matchMessages = [...(prev[matchId] || []), newMessage];
         return {
@@ -483,7 +458,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         };
       });
       
-      // Update chats
       await loadUserChats(user.id);
       
       return newMessage;
@@ -491,44 +465,6 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       console.error("Error sending message:", error);
       throw error;
     }
-  };
-
-  const loadUserChats = async (userId: string) => {
-    const userMatches = matches.filter(
-      match => match.user1Id === userId || match.user2Id === userId
-    );
-    
-    const newChats: Chat[] = [];
-    
-    for (const match of userMatches) {
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const otherUser = users.find(u => u.id === otherUserId);
-      
-      if (!otherUser) continue;
-      
-      const matchMessages = messages[match.id] || [];
-      const lastMsg = matchMessages.length > 0 
-        ? matchMessages.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())[0]
-        : undefined;
-      
-      const unreadCount = matchMessages.filter(
-        msg => msg.receiverId === userId && !msg.read
-      ).length;
-      
-      newChats.push({
-        matchId: match.id,
-        userId: otherUser.id,
-        userName: otherUser.name,
-        userImage: otherUser.images[0],
-        lastMessage: lastMsg?.originalText,
-        lastMessageTime: lastMsg?.timestamp,
-        unreadCount
-      });
-    }
-    
-    setChats(newChats);
-    
-    return newChats;
   };
 
   const getUserChats = async (userId: string) => {
