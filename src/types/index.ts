@@ -10,7 +10,6 @@ export interface User {
   interests: string[];
   location: string;
   preferredLanguage: string;
-  matches?: string[];
   createdAt: Date;
 }
 

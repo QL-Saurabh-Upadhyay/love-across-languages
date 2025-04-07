@@ -9,7 +9,116 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      matches: {
+        Row: {
+          created_at: string | null
+          id: string
+          user1_id: string
+          user2_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          user1_id: string
+          user2_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          user1_id?: string
+          user2_id?: string
+        }
+        Relationships: []
+      }
+      messages: {
+        Row: {
+          id: string
+          match_id: string
+          original_language: string
+          original_text: string
+          read: boolean | null
+          receiver_id: string
+          sender_id: string
+          timestamp: string | null
+          translated_text: string | null
+        }
+        Insert: {
+          id?: string
+          match_id: string
+          original_language: string
+          original_text: string
+          read?: boolean | null
+          receiver_id: string
+          sender_id: string
+          timestamp?: string | null
+          translated_text?: string | null
+        }
+        Update: {
+          id?: string
+          match_id?: string
+          original_language?: string
+          original_text?: string
+          read?: boolean | null
+          receiver_id?: string
+          sender_id?: string
+          timestamp?: string | null
+          translated_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          age: number | null
+          bio: string | null
+          created_at: string | null
+          email: string
+          gender: string | null
+          id: string
+          images: string[] | null
+          interests: string[] | null
+          location: string | null
+          name: string
+          preferred_language: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          age?: number | null
+          bio?: string | null
+          created_at?: string | null
+          email: string
+          gender?: string | null
+          id: string
+          images?: string[] | null
+          interests?: string[] | null
+          location?: string | null
+          name: string
+          preferred_language?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          age?: number | null
+          bio?: string | null
+          created_at?: string | null
+          email?: string
+          gender?: string | null
+          id?: string
+          images?: string[] | null
+          interests?: string[] | null
+          location?: string | null
+          name?: string
+          preferred_language?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

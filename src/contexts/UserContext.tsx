@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { User, Match, Chat, Message } from "@/types";
 import { useAuth } from "./AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 interface UserContextType {
   users: User[];
@@ -10,7 +11,7 @@ interface UserContextType {
   chats: Chat[];
   messages: Record<string, Message[]>;
   discoverUsers: () => Promise<User[]>;
-  getUser: (userId: string) => User | undefined;
+  getUser: (userId: string) => Promise<User | undefined>;
   matchUsers: (userId1: string, userId2: string) => Promise<Match>;
   getChatMessages: (matchId: string) => Promise<Message[]>;
   sendMessage: (matchId: string, text: string) => Promise<Message>;
@@ -19,153 +20,224 @@ interface UserContextType {
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
-// Example users data for demonstration
-const MOCK_USERS: User[] = [
-  {
-    id: "1",
-    name: "Emma Wilson",
-    email: "emma@example.com",
-    age: 28,
-    gender: "female",
-    bio: "Travel enthusiast, coffee lover, and bookworm. Looking for someone to share adventures with.",
-    images: ["/placeholder.svg"],
-    interests: ["Traveling", "Reading", "Hiking", "Photography"],
-    location: "New York",
-    preferredLanguage: "en",
-    createdAt: new Date()
-  },
-  {
-    id: "2",
-    name: "Miguel Rodriguez",
-    email: "miguel@example.com",
-    age: 30,
-    gender: "male",
-    bio: "Soy un amante de la música y la buena comida. Busco a alguien que comparta mis pasiones.",
-    images: ["/placeholder.svg"],
-    interests: ["Music", "Cooking", "Dancing", "Movies"],
-    location: "Madrid",
-    preferredLanguage: "es",
-    createdAt: new Date()
-  },
-  {
-    id: "3",
-    name: "Sophie Laurent",
-    email: "sophie@example.com",
-    age: 26,
-    gender: "female",
-    bio: "Artiste et voyageuse, toujours à la recherche de nouvelles expériences et rencontres.",
-    images: ["/placeholder.svg"],
-    interests: ["Art", "Travel", "Wine", "Culture"],
-    location: "Paris",
-    preferredLanguage: "fr",
-    createdAt: new Date()
-  },
-  {
-    id: "4",
-    name: "Hiroshi Tanaka",
-    email: "hiroshi@example.com",
-    age: 32,
-    gender: "male",
-    bio: "テクノロジー愛好家、ハイキング好き、そして新しい人との出会いを楽しみにしています。",
-    images: ["/placeholder.svg"],
-    interests: ["Technology", "Hiking", "Food", "Languages"],
-    location: "Tokyo",
-    preferredLanguage: "ja",
-    createdAt: new Date()
-  },
-  {
-    id: "5",
-    name: "Anna Schmidt",
-    email: "anna@example.com",
-    age: 27,
-    gender: "female",
-    bio: "Ich liebe die Natur und gutes Essen. Suche jemanden, der meine Leidenschaft für Reisen teilt.",
-    images: ["/placeholder.svg"],
-    interests: ["Nature", "Cooking", "Travel", "Yoga"],
-    location: "Berlin",
-    preferredLanguage: "de",
-    createdAt: new Date()
-  }
-];
-
-// Example matches data
-const INITIAL_MATCHES: Match[] = [
-  {
-    id: "match1",
-    user1Id: "1",
-    user2Id: "2",
-    timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000) // 3 days ago
-  },
-  {
-    id: "match2",
-    user1Id: "1",
-    user2Id: "3",
-    timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000) // 1 day ago
-  }
-];
-
-// Example messages data
-const INITIAL_MESSAGES: Record<string, Message[]> = {
-  "match1": [
-    {
-      id: "msg1",
-      senderId: "2",
-      receiverId: "1",
-      originalText: "Hola! ¿Cómo estás? Me alegro de que hayamos hecho match.",
-      originalLanguage: "es",
-      timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-      read: true
-    },
-    {
-      id: "msg2",
-      senderId: "1",
-      receiverId: "2",
-      originalText: "Hello! I'm good, thanks. I'm happy we matched too!",
-      originalLanguage: "en",
-      timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000 + 1000 * 60 * 30), // 30 minutes after previous message
-      read: true
-    }
-  ],
-  "match2": [
-    {
-      id: "msg3",
-      senderId: "3",
-      receiverId: "1",
-      originalText: "Bonjour! J'adore ton profil. Tu aimes voyager?",
-      originalLanguage: "fr",
-      timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000), // 12 hours ago
-      read: true
-    }
-  ]
-};
-
 export const UserProvider = ({ children }: { children: ReactNode }) => {
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [matches, setMatches] = useState<Match[]>(INITIAL_MATCHES);
-  const [messages, setMessages] = useState<Record<string, Message[]>>(INITIAL_MESSAGES);
+  const [users, setUsers] = useState<User[]>([]);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [messages, setMessages] = useState<Record<string, Message[]>>({});
   const [chats, setChats] = useState<Chat[]>([]);
   const { user } = useAuth();
   const { toast } = useToast();
 
+  // Load users on mount
   useEffect(() => {
     if (user) {
-      generateChats(user.id);
+      loadUsers();
+      loadMatches();
     }
-  }, [user, matches, messages]);
+  }, [user]);
 
-  const generateChats = (userId: string) => {
+  // Set up real-time listeners for messages
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('db-messages')
+      .on(
+        'postgres_changes',
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'messages',
+          filter: `receiver_id=eq.${user.id}`
+        },
+        (payload) => {
+          const newMessage = payload.new;
+          handleNewMessage(newMessage);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Set up real-time listeners for matches
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel('db-matches')
+      .on(
+        'postgres_changes',
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'matches',
+          filter: `user2_id=eq.${user.id}`
+        },
+        (payload) => {
+          const newMatch = payload.new;
+          handleNewMatch(newMatch);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  const handleNewMessage = async (newMsg: any) => {
+    // Convert Supabase message format to our app format
+    const formattedMessage: Message = {
+      id: newMsg.id,
+      senderId: newMsg.sender_id,
+      receiverId: newMsg.receiver_id,
+      originalText: newMsg.original_text,
+      originalLanguage: newMsg.original_language,
+      translatedText: newMsg.translated_text,
+      timestamp: new Date(newMsg.timestamp),
+      read: newMsg.read
+    };
+
+    // Update local messages state
+    setMessages(prev => {
+      const matchMessages = [...(prev[newMsg.match_id] || []), formattedMessage];
+      return {
+        ...prev,
+        [newMsg.match_id]: matchMessages
+      };
+    });
+    
+    // Update chats list
+    await loadUserChats(user!.id);
+  };
+
+  const handleNewMatch = async (newMatch: any) => {
+    // Convert Supabase match format to our app format
+    const formattedMatch: Match = {
+      id: newMatch.id,
+      user1Id: newMatch.user1_id,
+      user2Id: newMatch.user2_id,
+      timestamp: new Date(newMatch.created_at)
+    };
+
+    // Add to matches
+    setMatches(prev => [...prev, formattedMatch]);
+    
+    // Update chats
+    await loadUserChats(user!.id);
+    
+    // Show notification
+    toast({
+      title: "New match!",
+      description: "You have a new match! Check your messages."
+    });
+  };
+
+  const loadUsers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*');
+        
+      if (error) throw error;
+      
+      if (data) {
+        const loadedUsers: User[] = data.map(profile => ({
+          id: profile.id,
+          name: profile.name,
+          email: profile.email,
+          age: profile.age || 0,
+          gender: profile.gender || '',
+          bio: profile.bio || '',
+          images: profile.images?.length ? profile.images : ['/placeholder.svg'],
+          interests: profile.interests || [],
+          location: profile.location || '',
+          preferredLanguage: profile.preferred_language || 'en',
+          createdAt: new Date(profile.created_at)
+        }));
+        setUsers(loadedUsers);
+      }
+    } catch (error) {
+      console.error("Error loading users:", error);
+    }
+  };
+
+  const loadMatches = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('matches')
+        .select('*')
+        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`);
+        
+      if (error) throw error;
+      
+      if (data) {
+        const loadedMatches: Match[] = data.map(match => ({
+          id: match.id,
+          user1Id: match.user1_id,
+          user2Id: match.user2_id,
+          timestamp: new Date(match.created_at)
+        }));
+        setMatches(loadedMatches);
+        
+        // Load messages for each match
+        loadedMatches.forEach(match => loadMatchMessages(match.id));
+      }
+    } catch (error) {
+      console.error("Error loading matches:", error);
+    }
+  };
+
+  const loadMatchMessages = async (matchId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('match_id', matchId)
+        .order('timestamp', { ascending: true });
+        
+      if (error) throw error;
+      
+      if (data) {
+        const loadedMessages: Message[] = data.map(msg => ({
+          id: msg.id,
+          senderId: msg.sender_id,
+          receiverId: msg.receiver_id,
+          originalText: msg.original_text,
+          originalLanguage: msg.original_language,
+          translatedText: msg.translated_text,
+          timestamp: new Date(msg.timestamp),
+          read: msg.read
+        }));
+        
+        setMessages(prev => ({
+          ...prev,
+          [matchId]: loadedMessages
+        }));
+      }
+    } catch (error) {
+      console.error(`Error loading messages for match ${matchId}:`, error);
+    }
+  };
+
+  const loadUserChats = async (userId: string) => {
     const userMatches = matches.filter(
       match => match.user1Id === userId || match.user2Id === userId
     );
-
-    const newChats = userMatches.map(match => {
+    
+    const newChats: Chat[] = [];
+    
+    for (const match of userMatches) {
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       const otherUser = users.find(u => u.id === otherUserId);
       
-      if (!otherUser) {
-        return null;
-      }
-
+      if (!otherUser) continue;
+      
       const matchMessages = messages[match.id] || [];
       const lastMsg = matchMessages.length > 0 
         ? matchMessages.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())[0]
@@ -174,8 +246,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       const unreadCount = matchMessages.filter(
         msg => msg.receiverId === userId && !msg.read
       ).length;
-
-      return {
+      
+      newChats.push({
         matchId: match.id,
         userId: otherUser.id,
         userName: otherUser.name,
@@ -183,105 +255,238 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
         lastMessage: lastMsg?.originalText,
         lastMessageTime: lastMsg?.timestamp,
         unreadCount
-      };
-    }).filter(Boolean) as Chat[];
-
+      });
+    }
+    
     setChats(newChats);
+    
+    return newChats;
   };
 
   const discoverUsers = async () => {
-    // In a real app, this would fetch users from an API
-    // Here we're simulating by filtering out the current user and already matched users
     if (!user) return [];
     
-    // Simulate network latency
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    const userMatches = matches.filter(
-      match => match.user1Id === user.id || match.user2Id === user.id
-    );
-    
-    const matchedUserIds = userMatches.map(match => 
-      match.user1Id === user.id ? match.user2Id : match.user1Id
-    );
-    
-    return users.filter(u => 
-      u.id !== user.id && !matchedUserIds.includes(u.id)
-    );
+    try {
+      // Get all user matches to exclude them
+      const { data: matchData, error: matchError } = await supabase
+        .from('matches')
+        .select('*')
+        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`);
+        
+      if (matchError) throw matchError;
+      
+      // Get matched user IDs to exclude
+      const matchedUserIds = matchData?.map(match => 
+        match.user1_id === user.id ? match.user2_id : match.user1_id
+      ) || [];
+      
+      // Add current user ID to exclude list
+      const excludeIds = [user.id, ...matchedUserIds];
+      
+      // Get users who are not matched
+      const { data: userData, error: userError } = await supabase
+        .from('profiles')
+        .select('*')
+        .not('id', 'in', `(${excludeIds.map(id => `"${id}"`).join(',')})`);
+        
+      if (userError) throw userError;
+      
+      return userData?.map(profile => ({
+        id: profile.id,
+        name: profile.name,
+        email: profile.email,
+        age: profile.age || 0,
+        gender: profile.gender || '',
+        bio: profile.bio || '',
+        images: profile.images?.length ? profile.images : ['/placeholder.svg'],
+        interests: profile.interests || [],
+        location: profile.location || '',
+        preferredLanguage: profile.preferred_language || 'en',
+        createdAt: new Date(profile.created_at)
+      })) || [];
+    } catch (error) {
+      console.error("Error discovering users:", error);
+      return [];
+    }
   };
 
-  const getUser = (userId: string) => {
-    return users.find(u => u.id === userId);
+  const getUser = async (userId: string) => {
+    // First check cache
+    const cachedUser = users.find(u => u.id === userId);
+    if (cachedUser) return cachedUser;
+    
+    // If not in cache, fetch from DB
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+        
+      if (error) throw error;
+      
+      if (data) {
+        const user: User = {
+          id: data.id,
+          name: data.name,
+          email: data.email,
+          age: data.age || 0,
+          gender: data.gender || '',
+          bio: data.bio || '',
+          images: data.images?.length ? data.images : ['/placeholder.svg'],
+          interests: data.interests || [],
+          location: data.location || '',
+          preferredLanguage: data.preferred_language || 'en',
+          createdAt: new Date(data.created_at)
+        };
+        
+        // Add to cache
+        setUsers(prev => {
+          const exists = prev.some(u => u.id === user.id);
+          return exists ? prev : [...prev, user];
+        });
+        
+        return user;
+      }
+      return undefined;
+    } catch (error) {
+      console.error(`Error fetching user ${userId}:`, error);
+      return undefined;
+    }
   };
 
   const matchUsers = async (userId1: string, userId2: string) => {
-    // Create a new match
-    const newMatch: Match = {
-      id: `match-${Date.now()}`,
-      user1Id: userId1,
-      user2Id: userId2,
-      timestamp: new Date()
-    };
-    
-    // Simulate network latency
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    setMatches(prev => [...prev, newMatch]);
-    
-    toast({
-      title: "New match!",
-      description: "You have a new match! Start chatting now."
-    });
-    
-    return newMatch;
+    try {
+      const { data, error } = await supabase
+        .from('matches')
+        .insert({
+          user1_id: userId1,
+          user2_id: userId2
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      const newMatch: Match = {
+        id: data.id,
+        user1Id: data.user1_id,
+        user2Id: data.user2_id,
+        timestamp: new Date(data.created_at)
+      };
+      
+      // Update local state
+      setMatches(prev => [...prev, newMatch]);
+      
+      toast({
+        title: "New match!",
+        description: "You matched with someone new! Start chatting now."
+      });
+      
+      return newMatch;
+    } catch (error: any) {
+      console.error("Error creating match:", error);
+      toast({
+        variant: "destructive",
+        title: "Match failed",
+        description: error.message || "Failed to create match"
+      });
+      throw error;
+    }
   };
 
   const getChatMessages = async (matchId: string) => {
-    // In a real app, this would fetch messages from an API
-    // Simulate network latency
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    return messages[matchId] || [];
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('match_id', matchId)
+        .order('timestamp', { ascending: true });
+        
+      if (error) throw error;
+      
+      const loadedMessages: Message[] = data.map(msg => ({
+        id: msg.id,
+        senderId: msg.sender_id,
+        receiverId: msg.receiver_id,
+        originalText: msg.original_text,
+        originalLanguage: msg.original_language,
+        translatedText: msg.translated_text,
+        timestamp: new Date(msg.timestamp),
+        read: msg.read
+      }));
+      
+      // Update local state
+      setMessages(prev => ({
+        ...prev,
+        [matchId]: loadedMessages
+      }));
+      
+      return loadedMessages;
+    } catch (error) {
+      console.error(`Error fetching messages for match ${matchId}:`, error);
+      return [];
+    }
   };
 
   const sendMessage = async (matchId: string, text: string) => {
     if (!user) throw new Error("User not authenticated");
     
-    // Get the match to determine the recipient
-    const match = matches.find(m => m.id === matchId);
-    if (!match) throw new Error("Match not found");
-    
-    const recipientId = match.user1Id === user.id ? match.user2Id : match.user1Id;
-    
-    // Create a new message
-    const newMessage: Message = {
-      id: `msg-${Date.now()}`,
-      senderId: user.id,
-      receiverId: recipientId,
-      originalText: text,
-      originalLanguage: user.preferredLanguage,
-      timestamp: new Date(),
-      read: false
-    };
-    
-    // Simulate network latency
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Update messages state
-    setMessages(prev => ({
-      ...prev,
-      [matchId]: [...(prev[matchId] || []), newMessage]
-    }));
-    
-    return newMessage;
+    try {
+      // Get match to determine recipient
+      const match = matches.find(m => m.id === matchId);
+      if (!match) throw new Error("Match not found");
+      
+      const recipientId = match.user1Id === user.id ? match.user2Id : match.user1Id;
+      
+      // Insert message
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          match_id: matchId,
+          sender_id: user.id,
+          receiver_id: recipientId,
+          original_text: text,
+          original_language: user.preferredLanguage
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      // Convert to our format
+      const newMessage: Message = {
+        id: data.id,
+        senderId: data.sender_id,
+        receiverId: data.receiver_id,
+        originalText: data.original_text,
+        originalLanguage: data.original_language,
+        translatedText: data.translated_text,
+        timestamp: new Date(data.timestamp),
+        read: data.read
+      };
+      
+      // Update local state
+      setMessages(prev => {
+        const matchMessages = [...(prev[matchId] || []), newMessage];
+        return {
+          ...prev,
+          [matchId]: matchMessages
+        };
+      });
+      
+      // Update chats
+      await loadUserChats(user.id);
+      
+      return newMessage;
+    } catch (error: any) {
+      console.error("Error sending message:", error);
+      throw error;
+    }
   };
 
   const getUserChats = async (userId: string) => {
-    // In a real app, this would fetch chats from an API
-    // Simulate network latency
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    return chats;
+    return loadUserChats(userId);
   };
 
   return (

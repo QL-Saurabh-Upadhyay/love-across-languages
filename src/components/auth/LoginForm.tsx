@@ -70,12 +70,7 @@ const LoginForm = () => {
       </CardContent>
       <CardFooter className="flex flex-col space-y-2">
         <div className="text-sm text-muted-foreground text-center">
-          For demo purposes, use:
-          <div>emma@example.com</div>
-          <div>miguel@example.com</div>
-          <div>sophie@example.com</div>
-          <div>hiroshi@example.com</div>
-          <div>(any password will work)</div>
+          Note: If you're new, please register for an account first
         </div>
       </CardFooter>
     </Card>
