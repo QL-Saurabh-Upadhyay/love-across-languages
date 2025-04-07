@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUsers } from "@/contexts/UserContext";
-import { Send } from "lucide-react";
+import { Send, Globe } from "lucide-react";
 import { format } from "date-fns";
 
 const ChatWindow = () => {
@@ -169,8 +169,9 @@ const ChatWindow = () => {
                     <p className="text-sm">{isMine ? message.originalText : (message.translatedText || message.originalText)}</p>
                     {/* Only show original text if it's been translated */}
                     {!isMine && message.translatedText && (
-                      <div className="mt-1 pt-1 border-t border-border/20 text-xs opacity-70 italic">
-                        Original: {message.originalText}
+                      <div className="mt-1 pt-1 border-t border-border/20 text-xs opacity-70 italic flex items-center gap-1">
+                        <Globe className="h-3 w-3" />
+                        <span>Original: {message.originalText}</span>
                       </div>
                     )}
                     <div className="text-right mt-1">

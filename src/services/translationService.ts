@@ -13,6 +13,8 @@ export async function translateText(
   sourceLanguage?: string
 ): Promise<TranslationResponse> {
   try {
+    console.log(`Translating text to ${targetLanguage}...`);
+    
     const { data, error } = await supabase.functions.invoke('translate', {
       body: {
         text,
@@ -21,16 +23,21 @@ export async function translateText(
       }
     });
     
-    if (error) throw error;
+    if (error) {
+      console.error("Translation API error:", error);
+      throw error;
+    }
+    
+    console.log("Translation successful:", data);
     
     return {
       translatedText: data.translatedText,
       detectedLanguage: data.detectedLanguage
     };
   } catch (error) {
-    console.error("Translation error:", error);
+    console.error("Translation service error:", error);
     return {
-      translatedText: `[Translation error: ${text}]`,
+      translatedText: text,
       detectedLanguage: sourceLanguage
     };
   }
@@ -38,6 +45,8 @@ export async function translateText(
 
 export async function detectLanguage(text: string): Promise<string> {
   try {
+    console.log("Detecting language...");
+    
     const { data, error } = await supabase.functions.invoke('translate', {
       body: {
         text,
@@ -46,11 +55,16 @@ export async function detectLanguage(text: string): Promise<string> {
       }
     });
     
-    if (error) throw error;
+    if (error) {
+      console.error("Language detection API error:", error);
+      throw error;
+    }
+    
+    console.log("Language detection successful:", data.detectedLanguage);
     
     return data.detectedLanguage || 'en';
   } catch (error) {
-    console.error("Language detection error:", error);
+    console.error("Language detection service error:", error);
     return 'en';
   }
 }
