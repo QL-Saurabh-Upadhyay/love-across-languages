@@ -1,6 +1,5 @@
-
 import { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { Message } from "@/types";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,7 +7,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUsers } from "@/contexts/UserContext";
 import { Send } from "lucide-react";
-import { translateText, detectLanguage } from "@/services/translationService";
+import { translateText } from "@/services/translationService";
 import { format } from "date-fns";
 
 const ChatWindow = () => {
@@ -18,34 +17,36 @@ const ChatWindow = () => {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const { user } = useAuth();
-  const { getChatMessages, sendMessage, getUser } = useUsers();
+  const { getChatMessages, sendMessage } = useUsers();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const pollingRef = useRef<number | null>(null);
   
-  useEffect(() => {
-    const fetchMessages = async () => {
-      if (!matchId) return;
+  // Function to fetch messages
+  const fetchMessages = async () => {
+    if (!matchId || !user) return;
+    
+    try {
+      const chatMessages = await getChatMessages(matchId);
       
-      try {
-        const chatMessages = await getChatMessages(matchId);
-        
-        // If user has a preferred language, translate messages
-        if (user && user.preferredLanguage) {
-          const translatedMessages = await Promise.all(
-            chatMessages.map(async (msg) => {
-              // Only translate messages we're receiving and in a different language
-              if (msg.receiverId === user.id && msg.originalLanguage !== user.preferredLanguage) {
-                try {
-                  const result = await translateText(
-                    msg.originalText,
-                    user.preferredLanguage,
-                    msg.originalLanguage
-                  );
-                  
-                  return {
-                    ...msg,
-                    translatedText: result.translatedText
-                  };
-                } catch (error) {
+      // If user has a preferred language, translate messages
+      if (user && user.preferredLanguage) {
+        const translatedMessages = await Promise.all(
+          chatMessages.map(async (msg) => {
+            // Only translate messages we're receiving and in a different language
+            if (msg.receiverId === user.id && msg.originalLanguage !== user.preferredLanguage) {
+              try {
+                const result = await translateText(
+                  msg.originalText,
+                  user.preferredLanguage,
+                  msg.originalLanguage
+                );
+                
+                return {
+                  ...msg,
+                  translatedText: result.translatedText
+                };
+              } catch (error) {
                   console.error("Translation failed:", error);
                   return msg;
                 }
@@ -64,14 +65,32 @@ const ChatWindow = () => {
         setLoading(false);
       }
     };
+  
+  useEffect(() => {
+    // Check if user is authenticated
+    if (!user) {
+      return;
+    }
     
+    // Clear any existing polling interval
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+    
+    // Initial fetch
     fetchMessages();
     
     // Set up polling for new messages
-    const interval = setInterval(fetchMessages, 5000);
+    pollingRef.current = window.setInterval(fetchMessages, 5000);
     
-    return () => clearInterval(interval);
-  }, [matchId, getChatMessages, user]);
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [matchId, user]);
   
   useEffect(() => {
     // Scroll to bottom whenever messages change
@@ -79,18 +98,27 @@ const ChatWindow = () => {
   }, [messages]);
   
   const handleSend = async () => {
-    if (!matchId || !newMessage.trim() || sending) return;
+    if (!matchId || !newMessage.trim() || sending || !user) return;
     
     setSending(true);
     try {
       await sendMessage(matchId, newMessage.trim());
       setNewMessage("");
+      // Fetch latest messages immediately after sending
+      await fetchMessages();
     } catch (error) {
       console.error("Failed to send message:", error);
     } finally {
       setSending(false);
     }
   };
+  
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!user && !loading) {
+      navigate('/login');
+    }
+  }, [user, loading, navigate]);
   
   if (!matchId || loading) {
     return (

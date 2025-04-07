@@ -30,7 +30,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSession(currentSession);
         
         if (currentSession?.user) {
-          fetchUserProfile(currentSession.user.id);
+          // Use setTimeout to prevent potential deadlocks with Supabase auth
+          setTimeout(() => {
+            fetchUserProfile(currentSession.user.id);
+          }, 0);
         } else {
           setUser(null);
           setLoading(false);
