@@ -3,6 +3,7 @@ import { User, Match, Chat, Message } from "@/types";
 import { useAuth } from "./AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { supabase, Tables } from "@/integrations/supabase/client";
+import { translateText, detectLanguage } from "@/services/translationService";
 
 interface UserContextType {
   users: User[];
@@ -423,6 +424,25 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
       
       const recipientId = match.user1Id === user.id ? match.user2Id : match.user1Id;
       
+      const recipient = await getUser(recipientId);
+      if (!recipient) throw new Error("Recipient not found");
+      
+      const detectedLanguage = await detectLanguage(text);
+      
+      let translatedText = null;
+      if (recipient.preferredLanguage && recipient.preferredLanguage !== detectedLanguage) {
+        try {
+          const translation = await translateText(
+            text,
+            recipient.preferredLanguage,
+            detectedLanguage
+          );
+          translatedText = translation.translatedText;
+        } catch (error) {
+          console.error("Translation error:", error);
+        }
+      }
+      
       const { data, error } = await supabase
         .from('messages')
         .insert({
@@ -430,7 +450,8 @@ export const UserProvider = ({ children }: { children: ReactNode }) => {
           sender_id: user.id,
           receiver_id: recipientId,
           original_text: text,
-          original_language: user.preferredLanguage
+          original_language: detectedLanguage,
+          translated_text: translatedText
         })
         .select()
         .single();

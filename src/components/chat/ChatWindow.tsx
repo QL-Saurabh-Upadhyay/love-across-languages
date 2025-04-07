@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Message } from "@/types";
@@ -7,7 +8,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUsers } from "@/contexts/UserContext";
 import { Send } from "lucide-react";
-import { translateText } from "@/services/translationService";
 import { format } from "date-fns";
 
 const ChatWindow = () => {
@@ -28,43 +28,13 @@ const ChatWindow = () => {
     
     try {
       const chatMessages = await getChatMessages(matchId);
-      
-      // If user has a preferred language, translate messages
-      if (user && user.preferredLanguage) {
-        const translatedMessages = await Promise.all(
-          chatMessages.map(async (msg) => {
-            // Only translate messages we're receiving and in a different language
-            if (msg.receiverId === user.id && msg.originalLanguage !== user.preferredLanguage) {
-              try {
-                const result = await translateText(
-                  msg.originalText,
-                  user.preferredLanguage,
-                  msg.originalLanguage
-                );
-                
-                return {
-                  ...msg,
-                  translatedText: result.translatedText
-                };
-              } catch (error) {
-                  console.error("Translation failed:", error);
-                  return msg;
-                }
-              }
-              return msg;
-            })
-          );
-          
-          setMessages(translatedMessages);
-        } else {
-          setMessages(chatMessages);
-        }
-      } catch (error) {
-        console.error("Failed to fetch messages:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+      setMessages(chatMessages);
+    } catch (error) {
+      console.error("Failed to fetch messages:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
   
   useEffect(() => {
     // Check if user is authenticated
@@ -196,10 +166,11 @@ const ChatWindow = () => {
                         : "bg-accent text-accent-foreground chat-bubble-in"
                     }`}
                   >
-                    <p className="text-sm">{message.originalText}</p>
-                    {showTranslation && (
-                      <div className="mt-1 pt-1 border-t border-border/20 text-xs opacity-90">
-                        {message.translatedText}
+                    <p className="text-sm">{isMine ? message.originalText : (message.translatedText || message.originalText)}</p>
+                    {/* Only show original text if it's been translated */}
+                    {!isMine && message.translatedText && (
+                      <div className="mt-1 pt-1 border-t border-border/20 text-xs opacity-70 italic">
+                        Original: {message.originalText}
                       </div>
                     )}
                     <div className="text-right mt-1">
